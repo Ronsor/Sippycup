@@ -1,5 +1,7 @@
 # Sippycup
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/ronsor/sippycup.svg)](https://pkg.go.dev/github.com/ronsor/sippycup)
+
 Sippycup is a signaling and audio gateway for several telephony (and adjacent) protocols:
 
 * SIP + RTP
