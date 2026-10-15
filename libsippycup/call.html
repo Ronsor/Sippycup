@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{.Name}} · sippycup</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font:
+          17px system-ui,
+          sans-serif;
+      }
+
+      body {
+        margin: 0;
+        padding: 2rem 1rem;
+        background: #132022;
+        color: #edf4f0;
+      }
+
+      main {
+        max-width: 28rem;
+        margin: auto;
+      }
+
+      h1 {
+        margin-bottom: 0.2rem;
+      }
+
+      p {
+        line-height: 1.5;
+      }
+
+      label {
+        display: block;
+        margin: 1rem 0 0.3rem;
+      }
+
+      input,
+      textarea,
+      button {
+        box-sizing: border-box;
+        font: inherit;
+        border-radius: 0.6rem;
+      }
+
+      input,
+      textarea {
+        width: 100%;
+        padding: 0.7rem;
+        border: 1px solid #849894;
+        background: #1c2f31;
+        color: inherit;
+      }
+
+      button {
+        padding: 0.85rem;
+        border: 0;
+        background: #d6e8df;
+        color: #152724;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+
+      button:focus-visible,
+      input:focus-visible,
+      textarea:focus-visible {
+        outline: 3px solid #ffdc92;
+        outline-offset: 3px;
+      }
+
+      .actions {
+        display: flex;
+        gap: 0.6rem;
+        margin: 1rem 0;
+      }
+
+      .actions button {
+        flex: 1;
+      }
+
+      #call {
+        background: #93dfb5;
+      }
+
+      #hangup {
+        background: #ffc0b2;
+      }
+
+      #keypad {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.6rem;
+      }
+
+      #keypad button {
+        font-size: 1.4rem;
+      }
+
+      #status {
+        min-height: 3rem;
+      }
+
+      #digits {
+        display: block;
+        overflow-wrap: anywhere;
+        min-height: 1.5rem;
+      }
+
+      small,
+      .subtle {
+        color: #bfcdc7;
+      }
+
+      summary {
+        cursor: pointer;
+        padding: 0.8rem 0;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+    <script defer src="?sippycup_asset=call.js"></script>
+  </head>
+  <body
+    data-protocol="{{.Protocol}}"
+    data-extended="{{.Extended}}"
+    data-native="{{.Native}}"
+    data-basic-auth="{{.BasicAuth}}"
+  >
+    <main>
+      <h1>sippycup</h1>
+      <p class="subtle">
+        {{.Name}} · {{if eq .Protocol "webrtc_http"}}WebRTC{{else}}AudioSocket WebSocket{{end}}
+      </p>
+      <label for="destination">Destination</label>
+      <input id="destination" type="text" placeholder="+18005550100" autocomplete="off" />
+      <small>
+        Optional. Passed as a destination query parameter{{if .Extended}} and JSON
+        metadata{{end}}.
+      </small>
+
+      <details id="metadata-options" {{if not .Extended}}hidden{{end}}>
+        <summary>Connection metadata</summary>
+        <label for="metadata">JSON object</label>
+        <textarea id="metadata" rows="4" spellcheck="false">{}</textarea>
+      </details>
+
+      <details id="auth-options" {{if not .BasicAuth}}hidden{{end}}>
+        <summary>AudioSocket credentials</summary>
+        <label for="username">Username</label>
+        <input id="username" autocomplete="username" />
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" />
+        <small>
+          Sent in the connection’s basic_auth metadata. HTTP authentication uses the browser’s login
+          prompt.
+        </small>
+      </details>
+
+      <details id="ice-options" {{if ne .Protocol "webrtc_http"}}hidden{{end}}>
+        <summary>Browser ICE servers</summary>
+        <label for="ice">ICE server JSON array</label>
+        <textarea id="ice" rows="3" spellcheck="false">[]</textarea>
+        <small>
+          Optional STUN/TURN configuration for this browser, e.g.
+          [{"urls":"stun:stun.example.net:3478"}].
+        </small>
+      </details>
+
+      <div class="actions">
+        <button id="call">Call</button>
+        <button id="hangup" disabled>Hang up</button>
+        <button id="mute" disabled aria-pressed="false">Mute</button>
+      </div>
+
+      <p id="status" role="status" aria-live="polite">
+        Ready. Microphone access requires HTTPS or localhost.
+      </p>
+
+      <div id="keypad" aria-label="DTMF keypad">
+        <button disabled data-digit="1">1</button>
+        <button disabled data-digit="2">2</button>
+        <button disabled data-digit="3">3</button>
+        <button disabled data-digit="4">4</button>
+        <button disabled data-digit="5">5</button>
+        <button disabled data-digit="6">6</button>
+        <button disabled data-digit="7">7</button>
+        <button disabled data-digit="8">8</button>
+        <button disabled data-digit="9">9</button>
+        <button disabled data-digit="*">*</button>
+        <button disabled data-digit="0">0</button>
+        <button disabled data-digit="#">#</button>
+      </div>
+
+      <label for="digits">Digits sent</label>
+      <output id="digits"></output>
+      <audio id="remote" autoplay></audio>
+    </main>
+  </body>
+</html>

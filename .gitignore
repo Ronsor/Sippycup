@@ -1,0 +1,40 @@
+# Go binaries and build directories.
+/sippycup
+/sippycup.exe
+/picosipd
+/picosipd.exe
+/bin/
+/build/
+/dist/
+*.test
+*.test.exe
+
+# Coverage and profiling output.
+/coverage/
+/coverage.out
+/coverage.html
+*.coverprofile
+*.prof
+*.pprof
+
+# Local configuration and credentials; keep examples/config/*.hcl tracked.
+/*.hcl
+/.env
+/.env.*
+!/.env.example
+/.aws/
+
+# Local tool state.
+/.codex/
+/.agents/
+/.cache/
+/tmp/
+
+# Editor and operating-system files.
+/.idea/
+/.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
