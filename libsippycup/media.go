@@ -248,6 +248,8 @@ func nativeDTMF(n *Node) string {
 	switch n.Type {
 	case "sip", "webrtc_http":
 		return "rfc4733"
+	case "inproc":
+		return "native_frame"
 	case "exec":
 		if n.IO == "audiosocket" {
 			return "audiosocket"

@@ -466,10 +466,17 @@ func (e *Engine) prepare(ctx context.Context, s *Node, req *Request, in Leg) (*C
 
 	setupDone := make(chan struct{})
 	defer close(setupDone)
+	var ended <-chan struct{}
 	if leg, ok := in.(*channelLeg); ok {
+		ended = leg.ended
+	} else if leg, ok := in.(interface{ Done() <-chan struct{} }); ok {
+		ended = leg.Done()
+	}
+
+	if ended != nil {
 		go func() {
 			select {
-			case <-leg.ended:
+			case <-ended:
 				cancel()
 			case <-setupDone:
 			case <-callCtx.Done():
@@ -544,6 +551,9 @@ func (e *Engine) prepare(ctx context.Context, s *Node, req *Request, in Leg) (*C
 
 	var out Leg
 	switch n.Type {
+	case "inproc":
+		out, err = e.inProcessEndpoint(callCtx, dialCtx, n, req, eval,
+			r.Connect, destination, in.Format(), startEarly)
 	case "exec":
 		out, err = e.execEndpoint(callCtx, n, req, eval, r.Connect, in.Format())
 	case "audiosocket", "audiosocket_ws":

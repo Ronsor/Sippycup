@@ -61,6 +61,10 @@ type CredentialSet struct {
 // Exec endpoints inherit a minimal environment; PassEnvironment adds inherited
 // names and Environment adds explicit values without exposing all daemon secrets.
 type Node struct {
+	// InProcess creates one leg per call for an inproc endpoint. It is Go-only
+	// and must be attached before validation. Sources use Engine.Accept instead.
+	InProcess EndpointFunc
+
 	Name            string              `hcl:"name,label"`
 	Type            string              `hcl:"type"`
 	Bind            string              `hcl:"bind,optional"`
@@ -432,7 +436,7 @@ func (c *Config) Validate() error {
 			}
 
 			if !slices.Contains(
-				[]string{"sip", "audiosocket", "audiosocket_ws", "webrtc_http", "exec"},
+				[]string{"sip", "audiosocket", "audiosocket_ws", "webrtc_http", "exec", "inproc"},
 				n.Type,
 			) {
 				return fmt.Errorf("%s: unknown type %q", n.Name, n.Type)
@@ -442,12 +446,16 @@ func (c *Config) Validate() error {
 				return fmt.Errorf("%s: exec is an endpoint type", n.Name)
 			}
 
-			if source && n.Bind == "" {
+			if source && n.Type != "inproc" && n.Bind == "" {
 				return fmt.Errorf("source %s: bind is required", n.Name)
 			}
 
 			if !source {
 				switch n.Type {
+				case "inproc":
+					if n.InProcess == nil {
+						return fmt.Errorf("endpoint %s: InProcess callback is required", n.Name)
+					}
 				case "exec":
 					if len(n.Command) == 0 {
 						return fmt.Errorf("endpoint %s: command is required", n.Name)

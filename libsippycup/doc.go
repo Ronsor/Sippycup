@@ -35,8 +35,11 @@
 // # Configuration
 //
 // Named source and endpoint blocks have a type attribute. Source types are sip,
-// audiosocket, audiosocket_ws, and webrtc_http; endpoints additionally support
-// exec. A SIP source can register with a registrar. An endpoint can reuse a SIP
+// audiosocket, audiosocket_ws, webrtc_http, and inproc; endpoints additionally
+// support exec. Inproc sources accept Go-supplied legs through Engine.Accept;
+// inproc endpoints use Node.InProcess callbacks. NewLegPair supplies bounded
+// in-memory media and StatefulLeg early/answered notifications.
+// A SIP source can register with a registrar. An endpoint can reuse a SIP
 // source's signaling transport with source = source.NAME. Outgoing destinations
 // are SIP usernames at the configured endpoint domain, never arbitrary URLs.
 // SIP outbound_proxy="sip:proxy.example:5060;transport=tcp" adds a preloaded

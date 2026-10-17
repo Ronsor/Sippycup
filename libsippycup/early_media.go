@@ -10,7 +10,7 @@ func earlyMediaMode(n *Node) string {
 	}
 
 	switch n.Type {
-	case "sip":
+	case "sip", "inproc":
 		return "native"
 	case "audiosocket", "audiosocket_ws":
 		return "answer"

@@ -17,6 +17,17 @@ func validateNodeShape(n *Node, source bool) error {
 		return fmt.Errorf("%s: %s", n.Name, s)
 	}
 
+	if n.InProcess != nil && (source || n.Type != "inproc") {
+		return bad("InProcess applies only to inproc endpoints")
+	}
+
+	if n.Type == "inproc" && (n.Bind != "" || n.Path != "" || n.URL != "" ||
+		n.URI != "" || n.Address != "" || n.Auth != nil || n.TLS != nil ||
+		n.Advertise != nil || n.Transport != "" || len(n.Transports) != 0 ||
+		len(n.Codecs) != 0 || len(n.Origins) != 0) {
+		return bad("inproc uses Go legs and transcode settings, not network settings")
+	}
+
 	if n.UUID != "" {
 		if source || (n.Type != "audiosocket" && n.Type != "audiosocket_ws") {
 			return bad("uuid applies only to AudioSocket endpoints")
@@ -31,9 +42,9 @@ func validateNodeShape(n *Node, source bool) error {
 		return bad("early_media must be disabled, native, or answer")
 	}
 
-	if n.EarlyMedia == "native" && n.Type != "sip" &&
+	if n.EarlyMedia == "native" && n.Type != "sip" && n.Type != "inproc" &&
 		!(n.Extended && (n.Type == "audiosocket" || n.Type == "audiosocket_ws")) {
-		return bad("native early media requires SIP or extended AudioSocket")
+		return bad("native early media requires SIP, inproc, or extended AudioSocket")
 	}
 
 	if n.Type == "exec" && n.EarlyMedia != "" && n.EarlyMedia != "disabled" {
