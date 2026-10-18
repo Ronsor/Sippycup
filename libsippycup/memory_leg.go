@@ -86,6 +86,11 @@ func (l *MemoryLeg) Write(ctx context.Context, f Frame) error {
 		if f.Format != l.format || len(f.Data)%l.format.bytesPerSample() != 0 {
 			return errors.New("invalid memory leg audio format or sample alignment")
 		}
+		if f.Format.Codec == "opus" {
+			if _, err := opusSamples(f.Data); err != nil {
+				return err
+			}
+		}
 		f.Data = append([]byte(nil), f.Data...)
 	} else {
 		if !strings.ContainsRune(dtmfKeys, rune(f.Digit)) {

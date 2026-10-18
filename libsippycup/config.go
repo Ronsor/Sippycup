@@ -92,6 +92,7 @@ type Node struct {
 	TLS             *TLSConfig          `hcl:"tls,block"`
 	Advertise       *AdvertiseConfig    `hcl:"advertise,block"`
 	RTP             *RTPConfig          `hcl:"rtp,block"`
+	Opus            *OpusConfig         `hcl:"opus,block"`
 	ICE             *ICEConfig          `hcl:"ice,block"`
 	Registration    *RegistrationConfig `hcl:"registration,block"`
 	Timeouts        *TimeoutConfig      `hcl:"timeouts,block"`
@@ -507,7 +508,7 @@ func (c *Config) Validate() error {
 			}
 
 			for _, codec := range n.Codecs {
-				if codec != "pcmu" && codec != "pcma" && codec != "pcm_s16le" {
+				if codec != "pcmu" && codec != "pcma" && codec != "pcm_s16le" && codec != "opus" {
 					return fmt.Errorf("%s: unsupported codec %q", n.Name, codec)
 				}
 			}

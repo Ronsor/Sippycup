@@ -28,6 +28,18 @@ func validateNodeShape(n *Node, source bool) error {
 		return bad("inproc uses Go legs and transcode settings, not network settings")
 	}
 
+	if n.Opus != nil {
+		if n.Type != "sip" && n.Type != "webrtc_http" && n.Type != "inproc" {
+			return bad("opus options apply to SIP, WebRTC, and inproc nodes")
+		}
+		if n.Opus.Bitrate != 0 && (n.Opus.Bitrate < 6000 || n.Opus.Bitrate > 510000) {
+			return bad("Opus bitrate must be between 6000 and 510000")
+		}
+	}
+	if n.Type == "exec" && n.Transcode != nil && n.Transcode.Codec == "opus" {
+		return bad("exec streams require PCM or G.711; Opus requires packet boundaries")
+	}
+
 	if n.UUID != "" {
 		if source || (n.Type != "audiosocket" && n.Type != "audiosocket_ws") {
 			return bad("uuid applies only to AudioSocket endpoints")
@@ -166,8 +178,8 @@ func validateNodeShape(n *Node, source bool) error {
 	}
 
 	for _, codec := range n.Codecs {
-		if (n.Type == "sip" || n.Type == "webrtc_http") && codec != "pcmu" && codec != "pcma" {
-			return bad("SIP and WebRTC support pcmu and pcma")
+		if (n.Type == "sip" || n.Type == "webrtc_http") && codec != "pcmu" && codec != "pcma" && codec != "opus" {
+			return bad("SIP and WebRTC support pcmu, pcma, and opus")
 		}
 
 		if strings.HasPrefix(n.Type, "audiosocket") {
@@ -183,8 +195,8 @@ func validateNodeShape(n *Node, source bool) error {
 		if t.Codec != "" {
 			switch n.Type {
 			case "sip", "webrtc_http":
-				if t.Codec != "pcmu" && t.Codec != "pcma" {
-					return bad("SIP/WebRTC target codec must be pcmu or pcma")
+				if t.Codec != "pcmu" && t.Codec != "pcma" && t.Codec != "opus" {
+					return bad("SIP/WebRTC target codec must be pcmu, pcma, or opus")
 				}
 			case "audiosocket", "audiosocket_ws":
 				if t.Codec != "pcm_s16le" {

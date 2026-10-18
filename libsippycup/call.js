@@ -234,11 +234,11 @@ async function startWebRTC(call) {
   call.sender = pc.addTrack(call.stream.getAudioTracks()[0], call.stream);
   const transceiver = pc.getTransceivers()[0];
   const codecs = RTCRtpReceiver.getCapabilities("audio").codecs.filter((codec) =>
-    /audio\/(PCMU|PCMA|telephone-event)$/i.test(codec.mimeType),
+    /audio\/(PCMU|PCMA|opus|telephone-event)$/i.test(codec.mimeType),
   );
 
-  if (!codecs.some((codec) => /audio\/(PCMU|PCMA)$/i.test(codec.mimeType))) {
-    throw new Error("This browser does not support PCMU or PCMA.");
+  if (!codecs.some((codec) => /audio\/(PCMU|PCMA|opus)$/i.test(codec.mimeType))) {
+    throw new Error("This browser does not support PCMU, PCMA, or Opus.");
   }
 
   transceiver.setCodecPreferences(codecs);

@@ -156,6 +156,8 @@ func sipCodecs(n *Node) []sipCodec {
 			codecs = append(codecs, codecPCMU)
 		case "pcma":
 			codecs = append(codecs, codecPCMA)
+		case "opus":
+			codecs = append(codecs, codecOpus)
 		}
 	}
 
@@ -822,6 +824,9 @@ func newSIPMediaContext(ctx context.Context, n *Node, remote string) (*sipMedia,
 }
 
 type rtpOutput struct {
+	audioRate        uint32
+	eventTimestamp   uint32
+	silence          mediaCodec
 	mu               sync.Mutex
 	seq              uint16
 	timestamp, ssrc  uint32
@@ -838,12 +843,14 @@ func newRTPOutput(pt uint8, dtmf int, write func(*rtp.Packet) error) *rtpOutput 
 	_, _ = rand.Read(seed[:])
 
 	return &rtpOutput{
-		seq:       binary.BigEndian.Uint16(seed[:2]),
-		timestamp: binary.BigEndian.Uint32(seed[2:6]),
-		ssrc:      binary.BigEndian.Uint32(seed[6:]),
-		pt:        pt,
-		dtmf:      dtmf,
-		write:     write,
+		audioRate:      8000,
+		eventTimestamp: binary.BigEndian.Uint32(seed[2:6]),
+		seq:            binary.BigEndian.Uint16(seed[:2]),
+		timestamp:      binary.BigEndian.Uint32(seed[2:6]),
+		ssrc:           binary.BigEndian.Uint32(seed[6:]),
+		pt:             pt,
+		dtmf:           dtmf,
+		write:          write,
 	}
 }
 
@@ -867,6 +874,9 @@ func (o *rtpOutput) sendLocked(ctx context.Context, f Frame) error {
 			},
 			Payload: b,
 		}
+		if f.Digit != 0 {
+			p.Timestamp = o.eventTimestamp
+		}
 		o.seq++
 		err := o.write(p)
 		if err == nil {
@@ -877,8 +887,14 @@ func (o *rtpOutput) sendLocked(ctx context.Context, f Frame) error {
 		return err
 	}
 	if f.Digit == 0 {
-		err := write(o.pt, f.Data, false)
-		o.timestamp += uint32(len(f.Data) / f.Format.bytesPerSample())
+		samples, err := frameSamples(f)
+		if err != nil {
+			return err
+		}
+		o.audioRate = uint32(f.Format.Rate)
+		err = write(o.pt, f.Data, false)
+		o.timestamp += uint32(samples)
+		o.eventTimestamp += uint32(uint64(samples) * 8000 / uint64(o.audioRate))
 
 		return err
 	}
@@ -915,7 +931,8 @@ func (o *rtpOutput) sendLocked(ctx context.Context, f Frame) error {
 		}
 	}
 
-	o.timestamp += 800
+	o.timestamp += o.audioRate / 10
+	o.eventTimestamp += 800
 
 	return nil
 }
@@ -930,9 +947,14 @@ func (o *rtpOutput) keepalive(ctx context.Context, format Format, interval time.
 
 	if !o.lastPacket.IsZero() && age > 20*time.Millisecond {
 		o.timestamp += uint32((age - 20*time.Millisecond).Seconds() * float64(format.Rate))
+		o.eventTimestamp += uint32((age - 20*time.Millisecond).Seconds() * 8000)
 	}
 
-	err := o.sendLocked(ctx, Frame{Format: format, Data: encode(make([]int16, format.Rate/50), format)})
+	data, err := o.silence.encode(make([]int16, format.Rate/50), format)
+	if err != nil {
+		return err
+	}
+	err = o.sendLocked(ctx, Frame{Format: format, Data: data})
 	if err == nil {
 		o.keepalivePackets.Add(1)
 	}
@@ -987,6 +1009,10 @@ func (t *sipTransport) makeLeg(
 	}
 
 	out := newRTPOutput(codec.PayloadType, eventPT, sess.WriteRTP)
+	out.audioRate = uint32(format.Rate)
+	if n.Opus != nil {
+		out.silence.bitrate = n.Opus.Bitrate
+	}
 	var workers sync.WaitGroup
 	interval := 15 * time.Second
 	if n.RTP != nil {

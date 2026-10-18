@@ -31,6 +31,12 @@ func (e *Engine) execEndpoint(
 	fallback Format,
 ) (Leg, error) {
 	f := nodeFormat(n, fallback)
+	if f.Codec == "opus" {
+		if n.Transcode != nil && n.Transcode.Mode == "never" {
+			return nil, errors.New("exec cannot stream packetized Opus with transcode never")
+		}
+		f = Format{"pcm_s16le", 48000, 1}
+	}
 	if n.IO == "pcm" && f.Codec != "pcm_s16le" {
 		return nil, errors.New("io=pcm requires PCM format; configure transcode")
 	}

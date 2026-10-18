@@ -21,7 +21,7 @@
 // behavior. The page and scripts are embedded; no external asset service is used.
 //
 // Microphone access requires HTTPS or localhost. WebRTC uses bidirectional
-// PCMU/PCMA and native DTMF; AudioSocket WebSocket uses 8 kHz PCM and native DTMF
+// PCMU/PCMA or opt-in Opus and native DTMF; AudioSocket WebSocket uses 8 kHz PCM and native DTMF
 // packets. The destination field supplies the destination query parameter and,
 // for extended AudioSocket, the JSON destination field. Extended identities also
 // allow arbitrary JSON metadata and optional basic_auth credentials. Browser
@@ -77,11 +77,13 @@
 //
 // # Media
 //
-// All media traverses the daemon. Supported formats are mono PCMU, PCMA, and
-// signed 16-bit little-endian PCM at AudioSocket sample rates. No Opus or C codec
-// dependencies are used. transcode.mode is auto, always, or never. always requires
+// All media traverses the daemon. Supported formats are mono PCMU, PCMA, Opus,
+// and signed 16-bit little-endian PCM at AudioSocket sample rates. Codecs are
+// implemented in pure Go. transcode.mode is auto, always, or never. always requires
 // codec and optionally sample_rate/channels. A codec without mode means always.
-// Network RTP protocols negotiate PCMU/PCMA; AudioSocket always carries PCM.
+// Network RTP protocols negotiate PCMU/PCMA and opt-in Opus; AudioSocket carries PCM.
+// Opus encoding uses 48 kHz mono and 20 ms packets, with opus.bitrate defaulting
+// to 32000. Each Opus Frame holds one complete packet. No FEC or DTX is enabled.
 // Exec io=pcm requires PCM; io=raw preserves the selected encoded format; and
 // io=audiosocket carries framed AudioSocket over stdin/stdout. Without a fixed
 // exec format, its input format is inherited from the incoming leg.

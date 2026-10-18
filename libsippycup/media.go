@@ -37,6 +37,11 @@ func formatFor(codec string, rate, channels int) (Format, error) {
 	}
 
 	switch codec {
+	case "opus":
+		if rate != 0 && rate != 48000 {
+			return Format{}, errors.New("Opus requires a 48000 Hz clock")
+		}
+		rate = 48000
 	case "pcmu", "pcma":
 		if rate != 0 && rate != 8000 {
 			return Format{}, errors.New("G.711 requires 8000 Hz")
@@ -79,7 +84,8 @@ func nodeFormat(n *Node, fallback Format) Format {
 }
 
 // Frame carries encoded audio or one DTMF event. A nonzero Digit denotes
-// an event and takes precedence over Data.
+// an event and takes precedence over Data. Opus Data is exactly one complete
+// packet; its duration is derived from the TOC, not its byte length.
 type Frame struct {
 	Format Format
 	Data   []byte
@@ -518,8 +524,35 @@ func pump(ctx context.Context, src, dst Leg, sn, dn *Node, idle time.Duration) e
 	var rs resampler
 	var detector detector
 	var pending []byte
+	var pendingPCM []int16
+	codec := mediaCodec{}
+	if dn.Opus != nil {
+		codec.bitrate = dn.Opus.Bitrate
+	}
 	next := time.Now()
 	writeAudio := func(data []byte) error {
+		if target.Codec == "opus" {
+			samples, err := opusSamples(data)
+			if err != nil {
+				return err
+			}
+			if wait := time.Until(next); wait > 0 {
+				timer := time.NewTimer(wait)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return ctx.Err()
+				case <-timer.C:
+				}
+			} else if wait < -100*time.Millisecond {
+				next = time.Now()
+			}
+			if err := dst.Write(ctx, Frame{Format: target, Data: data}); err != nil {
+				return err
+			}
+			next = next.Add(time.Duration(samples) * time.Second / 48000)
+			return nil
+		}
 		pending = append(pending, data...)
 		size := target.frameBytes()
 		for len(pending) >= size {
@@ -546,12 +579,29 @@ func pump(ctx context.Context, src, dst Leg, sn, dn *Node, idle time.Duration) e
 
 		return nil
 	}
+	writePCM := func(pcm []int16) error {
+		if target.Codec != "opus" {
+			return writeAudio(encode(pcm, target))
+		}
+		pendingPCM = append(pendingPCM, pcm...)
+		for len(pendingPCM) >= 960 {
+			packet, err := codec.encode(pendingPCM[:960], target)
+			if err != nil {
+				return err
+			}
+			pendingPCM = pendingPCM[960:]
+			if err := writeAudio(packet); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	sendDigit := func(d byte) error {
 		switch sends(dn) {
 		case "none":
 			return nil
 		case "inband":
-			return writeAudio(encode(tone(d, target.Rate), target))
+			return writePCM(tone(d, target.Rate))
 		default:
 			return dst.Write(ctx, Frame{Digit: d})
 		}
@@ -585,11 +635,12 @@ func pump(ctx context.Context, src, dst Leg, sn, dn *Node, idle time.Duration) e
 			continue
 		}
 
-		needDecode := f.Format != target ||
+		stereoOpus := f.Format.Codec == "opus" && f.Data[0]&4 != 0
+		needDecode := f.Format != target || stereoOpus ||
 			receives(sn, "inband") ||
 			(dn.Transcode != nil &&
 				dn.Transcode.Mode == "always")
-		if f.Format != target &&
+		if (f.Format != target || stereoOpus) &&
 			((sn.Transcode != nil &&
 				sn.Transcode.Mode == "never") ||
 				(dn.Transcode != nil &&
@@ -600,7 +651,10 @@ func pump(ctx context.Context, src, dst Leg, sn, dn *Node, idle time.Duration) e
 		if !needDecode {
 			e = writeAudio(f.Data)
 		} else {
-			pcm := decode(f)
+			pcm, err := codec.decode(f)
+			if err != nil {
+				return err
+			}
 			if receives(sn, "inband") {
 				for _, d := range detector.process(pcm, f.Format.Rate) {
 					if e = sendDigit(d); e != nil {
@@ -610,7 +664,7 @@ func pump(ctx context.Context, src, dst Leg, sn, dn *Node, idle time.Duration) e
 			}
 
 			pcm = rs.process(pcm, f.Format.Rate, target.Rate)
-			e = writeAudio(encode(pcm, target))
+			e = writePCM(pcm)
 		}
 
 		if e != nil {

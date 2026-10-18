@@ -74,7 +74,8 @@ func (t *webTrack) Bind(ctx webrtc.TrackLocalContext) (webrtc.RTPCodecParameters
 			t.eventPT = int(c.PayloadType)
 		} else if codec.MimeType == "" &&
 			(strings.EqualFold(c.MimeType, "audio/PCMU") ||
-				strings.EqualFold(c.MimeType, "audio/PCMA")) {
+				strings.EqualFold(c.MimeType, "audio/PCMA") ||
+				strings.EqualFold(c.MimeType, "audio/opus")) {
 			codec = c
 		}
 	}
@@ -135,6 +136,9 @@ func (e *Engine) newPeer(ctx context.Context, n *Node) (*webPeer, error) {
 		}
 		if c.Name == "telephone-event" {
 			cap.SDPFmtpLine = "0-15"
+		} else if strings.EqualFold(c.Name, "opus") {
+			cap.Channels = 2 // RFC 7587 requires /2 even for mono operation.
+			cap.SDPFmtpLine = "stereo=0;sprop-stereo=0;useinbandfec=0"
 		}
 
 		if err := m.RegisterCodec(
@@ -233,7 +237,7 @@ func (e *Engine) newPeer(ctx context.Context, n *Node) (*webPeer, error) {
 
 	f := Format{"pcmu", 8000, 1}
 	if len(codecs) > 0 {
-		f.Codec = strings.ToLower(codecs[0].Name)
+		f, _ = formatFor(strings.ToLower(codecs[0].Name), int(codecs[0].SampleRate), 1)
 	}
 
 	l := newChannelLeg(ctx, f, e.depth(n))
@@ -338,6 +342,7 @@ func (e *Engine) newPeer(ctx context.Context, n *Node) (*webPeer, error) {
 		if out == nil {
 			track.mu.Lock()
 			out = newRTPOutput(uint8(track.codec.PayloadType), track.eventPT, track.write)
+			out.audioRate = track.codec.ClockRate
 			track.mu.Unlock()
 		}
 
@@ -360,7 +365,7 @@ func (p *webPeer) negotiated() error {
 		p.leg.format = f
 		return nil
 	default:
-		return errors.New("WebRTC offer must negotiate bidirectional PCMU or PCMA audio")
+		return errors.New("WebRTC offer must negotiate bidirectional PCMU, PCMA, or Opus audio")
 	}
 }
 
@@ -459,7 +464,7 @@ func (e *Engine) serveWebRTC(n *Node, w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err = p.negotiated(); err != nil {
-		http.Error(w, "bidirectional PCMU/PCMA audio required", 400)
+		http.Error(w, "bidirectional PCMU/PCMA/Opus audio required", 400)
 
 		return
 	}

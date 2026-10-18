@@ -9,7 +9,7 @@
 | `sip` | Incoming calls, optionally with registrar registration | Outbound calls | UDP, TCP, TLS signaling; RTP media; digest auth and outbound proxies. |
 | `audiosocket` | TCP listener | TCP connection | Standard binary UUID or opt-in extended JSON identity. |
 | `audiosocket_ws` | HTTP WebSocket upgrade | WebSocket connection | AudioSocket packets over WS/WSS; not Asterisk `chan_websocket`. |
-| `webrtc_http` | HTTP SDP offer | HTTP SDP offer to another server | Custom bidirectional audio signaling; PCMU/PCMA. |
+| `webrtc_http` | HTTP SDP offer | HTTP SDP offer to another server | Custom bidirectional audio signaling; PCMU/PCMA and opt-in Opus. |
 | `exec` | — | Subprocess | PCM, raw encoded audio, or framed AudioSocket over stdio. |
 
 The WebRTC HTTP profile is a modified version of WHIP/WHEP signaling where calls carry two-way

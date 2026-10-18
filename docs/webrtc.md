@@ -3,7 +3,7 @@
 [← Sippycup](../README.md)
 
 The `webrtc_http` source and endpoint use a custom bidirectional audio profile,
-not standard playback-only WHEP. Offers must negotiate PCMU or PCMA; Opus is not supported.
+not standard playback-only WHEP. Offers must negotiate PCMU, PCMA, or explicitly enabled Opus.
 
 The browser page is served for GET/HEAD requests preferring `text/html`. SDP
 requests and WebSocket upgrades retain their protocol behavior. Authentication

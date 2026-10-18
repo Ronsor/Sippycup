@@ -24,10 +24,19 @@ The Asterisk tests skip when the executable variable is unset or `-short` is use
 
 ## Limitations
 
-Current limitations include Opus, SIP SRTP, SIP ICE/TURN, conferencing, registrar
+Current limitations include SIP SRTP, SIP ICE/TURN, conferencing, registrar
 service, REFER, SIP re-INVITE/hold, multi-stream SDP, and codec renegotiation.
 Early media does not support 100rel/PRACK, concurrent forked dialogs, early SIP INFO,
 or locally generated ringback. RTP loss and reordering have no adaptive jitter
 buffer or packet-loss concealment in this version.
 
 See also the [engine library](../libsippycup/README.md).
+
+Opus tests include checked-in libopus tone fixtures and SIP/WebRTC loopback calls.
+To additionally check Pion-encoded audio with FFmpeg (optional):
+
+```sh
+CGO_ENABLED=0 SIPPYCUP_FFMPEG=/usr/bin/ffmpeg go test -run TestOpusFFmpegDecode ./libsippycup
+```
+
+Without `SIPPYCUP_FFMPEG`, or with `-short`, that external-tool test skips.

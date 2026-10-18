@@ -2,10 +2,35 @@
 
 [← Sippycup](../README.md)
 
-Supported formats are mono PCMU, PCMA, and signed 16-bit little-endian PCM at AudioSocket sample
-rates. RTP protocols always negotiate PCMU/PCMA, while AudioSocket carries PCM.
+Supported formats are mono PCMU, PCMA, Opus, and signed 16-bit little-endian PCM at AudioSocket
+sample rates. SIP and WebRTC can negotiate Opus; AudioSocket carries PCM.
+Codec conversion uses pure Go and does not require CGO or ffmpeg.
 
-Opus is not currently supported. Codec conversion does not require CGO or ffmpeg.
+Opus is opt-in: add it to a SIP or WebRTC node's codec list. The default remains PCMU/PCMA.
+
+```hcl
+codecs = ["opus", "pcmu", "pcma"]
+
+opus {
+  bitrate = 32000
+}
+```
+
+The optional `opus` block configures locally encoded audio (6000–510000 bits/s; default 32000).
+It also applies to in-process nodes. Encoding uses mono 48 kHz and 20 ms packets.
+Incoming packets may use other Opus frame durations and SILK, hybrid, or CELT modes;
+stereo input is decoded to mono when transcoding. SDP uses `opus/48000/2`, as required
+by the RTP format, while requesting mono operation.
+
+Compatible mono Opus packets pass through intact unless transcoding or in-band DTMF requires
+decoding. Packet duration drives pacing and RTP timestamps. `transcode { codec = "opus" }`
+forces encoding; its sample rate, if supplied, must be 48000. Bitrate settings do not
+alter packets passed through without encoding.
+
+Opus uses a pinned development revision of `github.com/pion/opus`; no FEC, DTX, jitter
+buffer, or packet-loss concealment is enabled by the gateway. Exec endpoints receive
+PCM when inheriting an Opus input format; raw subprocess byte streams cannot delimit
+Opus packets. In-process `Frame.Data` must contain one complete Opus packet.
 
 A source or endpoint can select `transcode.mode = "auto"`, `"always"`, or `"never"`. To force a
 format on an endpoint:

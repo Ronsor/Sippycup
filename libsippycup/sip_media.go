@@ -27,6 +27,8 @@ var codecPCMU = sipCodec{"PCMU", 0, 8000}
 
 var codecPCMA = sipCodec{"PCMA", 8, 8000}
 
+var codecOpus = sipCodec{"opus", 111, 48000}
+
 var codecTelephoneEvent = sipCodec{"telephone-event", 101, 8000}
 
 // sipMedia owns a single audio RTP/RTCP pair. Signaling is handled by sipgo.
@@ -190,7 +192,14 @@ func (s *sipMedia) RemoteSDP(body []byte) error {
 		}
 
 		rate, err := strconv.Atoi(parts[1])
-		if err != nil || len(parts) == 3 && parts[2] != "1" {
+		if err != nil {
+			continue
+		}
+		if strings.EqualFold(parts[0], "opus") {
+			if rate != 48000 || len(parts) != 3 || parts[2] != "2" {
+				continue
+			}
+		} else if len(parts) == 3 && parts[2] != "1" {
 			continue
 		}
 
@@ -321,7 +330,12 @@ func (s *sipMedia) LocalSDP() []byte {
 	}
 
 	for _, c := range codecs {
-		fmt.Fprintf(&b, "a=rtpmap:%d %s/%d\r\n", c.PayloadType, c.Name, c.SampleRate)
+		if strings.EqualFold(c.Name, "opus") {
+			fmt.Fprintf(&b, "a=rtpmap:%d opus/48000/2\r\n", c.PayloadType)
+			fmt.Fprintf(&b, "a=fmtp:%d stereo=0;sprop-stereo=0;useinbandfec=0\r\n", c.PayloadType)
+		} else {
+			fmt.Fprintf(&b, "a=rtpmap:%d %s/%d\r\n", c.PayloadType, c.Name, c.SampleRate)
+		}
 		if c.Name == "telephone-event" {
 			fmt.Fprintf(&b, "a=fmtp:%d 0-15\r\n", c.PayloadType)
 		}
