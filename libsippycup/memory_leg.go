@@ -28,6 +28,8 @@ type MemoryLeg struct {
 // positive queue capacity in frames per direction. Closing either end or
 // canceling ctx closes both ends and interrupts blocked reads and writes.
 // Applications must eventually close the pair, even after setup fails.
+// Opus frames use the pair's stream format, including Channels, even when a
+// stereo stream contains a mono-encoded packet. See Frame for channel semantics.
 func NewLegPair(ctx context.Context, format Format, capacity int) (*MemoryLeg, *MemoryLeg, error) {
 	if capacity < 1 {
 		return nil, nil, errors.New("leg queue capacity must be positive")
@@ -83,7 +85,8 @@ func (l *MemoryLeg) Write(ctx context.Context, f Frame) error {
 	}
 
 	if f.Digit == 0 {
-		if f.Format != l.format || len(f.Data)%l.format.bytesPerSample() != 0 {
+		if f.Format != l.format || (f.Format.Codec != "opus" &&
+			len(f.Data)%(l.format.bytesPerSample()*l.format.Channels) != 0) {
 			return errors.New("invalid memory leg audio format or sample alignment")
 		}
 		if f.Format.Codec == "opus" {

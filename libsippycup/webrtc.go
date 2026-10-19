@@ -138,7 +138,7 @@ func (e *Engine) newPeer(ctx context.Context, n *Node) (*webPeer, error) {
 			cap.SDPFmtpLine = "0-15"
 		} else if strings.EqualFold(c.Name, "opus") {
 			cap.Channels = 2 // RFC 7587 requires /2 even for mono operation.
-			cap.SDPFmtpLine = "stereo=0;sprop-stereo=0;useinbandfec=0"
+			cap.SDPFmtpLine = opusFMTP(opusChannels(n))
 		}
 
 		if err := m.RegisterCodec(
@@ -315,7 +315,7 @@ func (e *Engine) newPeer(ctx context.Context, n *Node) (*webPeer, error) {
 				}
 
 				f, ok := formats[packet.PayloadType]
-				if ok && !l.emit(Frame{Format: f, Data: append([]byte(nil), packet.Payload...)}) {
+				if ok && !l.emit(Frame{Format: packetFormat(f, packet.Payload), Data: append([]byte(nil), packet.Payload...)}) {
 					return
 				}
 			}
@@ -358,7 +358,13 @@ func (p *webPeer) negotiated() error {
 		p.track.mu.Lock()
 		defer p.track.mu.Unlock()
 		name := strings.TrimPrefix(strings.ToLower(p.track.codec.MimeType), "audio/")
-		f, err := formatFor(name, int(p.track.codec.ClockRate), 1)
+		channels := 1
+		remote := p.pc.RemoteDescription()
+		if name == "opus" && remote != nil &&
+			remoteOpusStereo(remote.SDP, uint8(p.track.codec.PayloadType)) {
+			channels = opusChannels(p.node)
+		}
+		f, err := formatFor(name, int(p.track.codec.ClockRate), channels)
 		if err != nil {
 			return err
 		}

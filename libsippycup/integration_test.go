@@ -17,7 +17,11 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	if len(os.Args) == 2 && os.Args[1] == "--sippycup-test-echo" {
+	if len(os.Args) == 2 && (os.Args[1] == "--sippycup-test-echo" ||
+		os.Args[1] == "--sippycup-test-stereo-echo") {
+		if os.Args[1] == "--sippycup-test-stereo-echo" && os.Getenv("AUDIO_CHANNELS") != "2" {
+			os.Exit(2)
+		}
 		if _, err := io.Copy(os.Stdout, os.Stdin); err != nil {
 			os.Exit(1)
 		}
@@ -62,13 +66,18 @@ func testEngine(t *testing.T, text string) *Engine {
 	}
 
 	for _, endpoint := range c.Endpoints {
-		if len(endpoint.Command) == 1 && endpoint.Command[0] == "@test-echo" {
+		if len(endpoint.Command) == 1 && (endpoint.Command[0] == "@test-echo" ||
+			endpoint.Command[0] == "@test-stereo-echo") {
 			binary, err := os.Executable()
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			endpoint.Command = []string{binary, "--sippycup-test-echo"}
+			arg := "--sippycup-test-echo"
+			if endpoint.Command[0] == "@test-stereo-echo" {
+				arg = "--sippycup-test-stereo-echo"
+			}
+			endpoint.Command = []string{binary, arg}
 		}
 	}
 

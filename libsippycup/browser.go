@@ -108,12 +108,20 @@ func serveBrowser(n *Node, w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 
+	channels := 1
+	if n.Type == "webrtc_http" {
+		channels = opusChannels(n)
+	} else {
+		channels = nodeFormat(n, Format{"pcm_s16le", 8000, 1}).Channels
+	}
 	var body bytes.Buffer
 	data := struct {
 		Protocol, Name              string
+		Channels                    int
 		Extended, Native, BasicAuth bool
 	}{
 		Protocol:  n.Type,
+		Channels:  channels,
 		Name:      n.Name,
 		Extended:  n.Extended,
 		Native:    n.EarlyMedia == "native",

@@ -16,7 +16,7 @@ import (
 )
 
 // Format describes an audio encoding, sample rate in Hz, and channel count.
-// The gateway currently supports mono audio only.
+// PCM and Opus support mono or interleaved stereo; G.711 supports mono.
 type Format struct {
 	Codec    string `json:"codec"`
 	Rate     int    `json:"sample_rate"`
@@ -32,8 +32,8 @@ func formatFor(codec string, rate, channels int) (Format, error) {
 		channels = 1
 	}
 
-	if channels != 1 {
-		return Format{}, errors.New("only mono audio is supported")
+	if channels != 1 && channels != 2 {
+		return Format{}, errors.New("only mono and stereo audio are supported")
 	}
 
 	switch codec {
@@ -43,6 +43,9 @@ func formatFor(codec string, rate, channels int) (Format, error) {
 		}
 		rate = 48000
 	case "pcmu", "pcma":
+		if channels != 1 {
+			return Format{}, errors.New("G.711 requires mono audio")
+		}
 		if rate != 0 && rate != 8000 {
 			return Format{}, errors.New("G.711 requires 8000 Hz")
 		}
@@ -70,14 +73,22 @@ func (f Format) bytesPerSample() int {
 }
 
 func (f Format) frameBytes() int {
-	return f.Rate / 50 * f.bytesPerSample()
+	return f.Rate / 50 * f.bytesPerSample() * f.Channels
 }
 
 func nodeFormat(n *Node, fallback Format) Format {
 	if n.Transcode != nil && n.Transcode.Codec != "" {
-		f, _ := formatFor(n.Transcode.Codec, n.Transcode.SampleRate, n.Transcode.Channels)
+		channels := n.Transcode.Channels
+		if n.Transcode.Codec == "opus" {
+			channels = opusChannels(n)
+		}
+		f, _ := formatFor(n.Transcode.Codec, n.Transcode.SampleRate, channels)
 
 		return f
+	}
+
+	if fallback.Codec == "opus" && n.Opus != nil && n.Opus.Channels != 0 {
+		fallback.Channels = n.Opus.Channels
 	}
 
 	return fallback
@@ -86,6 +97,11 @@ func nodeFormat(n *Node, fallback Format) Format {
 // Frame carries encoded audio or one DTMF event. A nonzero Digit denotes
 // an event and takes precedence over Data. Opus Data is exactly one complete
 // packet; its duration is derived from the TOC, not its byte length.
+// For Opus, Channels describes the PCM layout expected by the consumer, not
+// necessarily the packet encoding: a stereo stream may contain mono packets,
+// which an Opus decoder duplicates into both channels. The packet TOC bit 0x04
+// identifies stereo encoding. Network readers report that encoded channel count;
+// bridge writers use the destination stream format.
 type Frame struct {
 	Format Format
 	Data   []byte
@@ -521,7 +537,7 @@ func detectWindow(b []int16, rate int) byte {
 // subprocesses and TCP peers cannot burst arbitrary amounts of audio downstream.
 func pump(ctx context.Context, src, dst Leg, sn, dn *Node, idle time.Duration) error {
 	target := dst.Format()
-	var rs resampler
+	var rs channelResampler
 	var detector detector
 	var pending []byte
 	var pendingPCM []int16
@@ -584,12 +600,13 @@ func pump(ctx context.Context, src, dst Leg, sn, dn *Node, idle time.Duration) e
 			return writeAudio(encode(pcm, target))
 		}
 		pendingPCM = append(pendingPCM, pcm...)
-		for len(pendingPCM) >= 960 {
-			packet, err := codec.encode(pendingPCM[:960], target)
+		size := 960 * target.Channels
+		for len(pendingPCM) >= size {
+			packet, err := codec.encode(pendingPCM[:size], target)
 			if err != nil {
 				return err
 			}
-			pendingPCM = pendingPCM[960:]
+			pendingPCM = pendingPCM[size:]
 			if err := writeAudio(packet); err != nil {
 				return err
 			}
@@ -601,7 +618,7 @@ func pump(ctx context.Context, src, dst Leg, sn, dn *Node, idle time.Duration) e
 		case "none":
 			return nil
 		case "inband":
-			return writePCM(tone(d, target.Rate))
+			return writePCM(mixChannels(tone(d, target.Rate), 1, target.Channels))
 		default:
 			return dst.Write(ctx, Frame{Digit: d})
 		}
@@ -635,12 +652,15 @@ func pump(ctx context.Context, src, dst Leg, sn, dn *Node, idle time.Duration) e
 			continue
 		}
 
-		stereoOpus := f.Format.Codec == "opus" && f.Data[0]&4 != 0
-		needDecode := f.Format != target || stereoOpus ||
+		f.Format = packetFormat(f.Format, f.Data)
+		// Opus decoders can duplicate a mono packet into stereo without re-encoding.
+		compatible := f.Format == target || (f.Format.Codec == "opus" &&
+			target.Codec == "opus" && target.Channels == 2)
+		needDecode := !compatible ||
 			receives(sn, "inband") ||
 			(dn.Transcode != nil &&
 				dn.Transcode.Mode == "always")
-		if (f.Format != target || stereoOpus) &&
+		if !compatible &&
 			((sn.Transcode != nil &&
 				sn.Transcode.Mode == "never") ||
 				(dn.Transcode != nil &&
@@ -656,14 +676,15 @@ func pump(ctx context.Context, src, dst Leg, sn, dn *Node, idle time.Duration) e
 				return err
 			}
 			if receives(sn, "inband") {
-				for _, d := range detector.process(pcm, f.Format.Rate) {
+				for _, d := range detector.process(mixChannels(pcm, f.Format.Channels, 1), f.Format.Rate) {
 					if e = sendDigit(d); e != nil {
 						return e
 					}
 				}
 			}
 
-			pcm = rs.process(pcm, f.Format.Rate, target.Rate)
+			pcm = mixChannels(pcm, f.Format.Channels, target.Channels)
+			pcm = rs.process(pcm, f.Format.Rate, target.Rate, target.Channels)
 			e = writePCM(pcm)
 		}
 
@@ -671,4 +692,53 @@ func pump(ctx context.Context, src, dst Leg, sn, dn *Node, idle time.Duration) e
 			return e
 		}
 	}
+}
+
+// mixChannels duplicates mono or averages stereo without overflowing int16.
+func mixChannels(pcm []int16, in, out int) []int16 {
+	if in == out {
+		return pcm
+	}
+
+	result := make([]int16, len(pcm)/in*out)
+	if out == 1 {
+		for i := range result {
+			result[i] = int16((int32(pcm[2*i]) + int32(pcm[2*i+1])) / 2)
+		}
+	} else {
+		for i, v := range pcm {
+			result[2*i], result[2*i+1] = v, v
+		}
+	}
+
+	return result
+}
+
+// channelResampler keeps separate filter history for each interleaved channel.
+type channelResampler struct {
+	channels [2]resampler
+}
+
+func (r *channelResampler) process(pcm []int16, in, out, channels int) []int16 {
+	if channels == 1 {
+		return r.channels[0].process(pcm, in, out)
+	}
+	if in == out {
+		return pcm
+	}
+
+	var planes [2][]int16
+	for ch := range planes {
+		plane := make([]int16, len(pcm)/2)
+		for i := range plane {
+			plane[i] = pcm[2*i+ch]
+		}
+		planes[ch] = r.channels[ch].process(plane, in, out)
+	}
+	result := make([]int16, len(planes[0])*2)
+	for i := range planes[0] {
+		result[2*i], result[2*i+1] = planes[0][i], planes[1][i]
+	}
+
+	return result
 }

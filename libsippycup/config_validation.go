@@ -29,6 +29,9 @@ func validateNodeShape(n *Node, source bool) error {
 	}
 
 	if n.Opus != nil {
+		if n.Opus.Channels < 0 || n.Opus.Channels > 2 {
+			return bad("Opus channels must be 1 or 2")
+		}
 		if n.Type != "sip" && n.Type != "webrtc_http" && n.Type != "inproc" {
 			return bad("opus options apply to SIP, WebRTC, and inproc nodes")
 		}
@@ -188,6 +191,11 @@ func validateNodeShape(n *Node, source bool) error {
 	}
 
 	if t := n.Transcode; t != nil {
+		audioSocket := strings.HasPrefix(n.Type, "audiosocket") ||
+			(n.Type == "exec" && n.IO == "audiosocket")
+		if t.Channels == 2 && !n.Extended && audioSocket {
+			return bad("stereo AudioSocket requires extended=true")
+		}
 		if t.Codec == "" && (t.SampleRate != 0 || t.Channels != 0) {
 			return bad("sample_rate and channels require transcode.codec")
 		}

@@ -4,6 +4,7 @@
 // exceeds 16 bytes, and contains a uuid string. All 16-byte identities are binary UUIDs.
 // KindState is an opt-in extension for peers that distinguish early and answered
 // audio. WithExtended permits it but does not automatically send state messages.
+// Extended mode also permits stereo PCM kinds 0x20–0x28; see PCMKind and WritePCM.
 package audiosocket
 
 import (
@@ -139,6 +140,54 @@ func AudioRate(kind byte) (int, bool) {
 	}
 
 	return rates[i], true
+}
+
+// PCMKind returns the packet kind for mono or stereo signed 16-bit PCM.
+// Stereo uses the extended protocol's 0x20–0x28 range at the same rates as mono.
+func PCMKind(rate, channels int) (byte, error) {
+	kind, err := AudioKind(rate)
+	if err != nil {
+		return 0, err
+	}
+	switch channels {
+	case 1:
+		return kind, nil
+	case 2:
+		return kind + 0x10, nil
+	default:
+		return 0, errors.New("audiosocket: PCM requires one or two channels")
+	}
+}
+
+// PCMFormat returns the sample rate and channel count for a PCM packet kind.
+// The boolean is false for non-audio and unknown packet kinds.
+func PCMFormat(kind byte) (rate, channels int, ok bool) {
+	channels = 1
+	if kind >= 0x20 && kind <= 0x28 {
+		kind -= 0x10
+		channels = 2
+	}
+	rate, ok = AudioRate(kind)
+	if !ok {
+		return 0, 0, false
+	}
+
+	return rate, channels, true
+}
+
+func validatePCM(p Packet, extended bool) error {
+	_, channels, ok := PCMFormat(p.Kind)
+	if !ok {
+		return nil
+	}
+	if channels == 2 && !extended {
+		return errors.New("audiosocket: stereo PCM requires extended mode")
+	}
+	if len(p.Payload)%(2*channels) != 0 {
+		return errors.New("audiosocket: incomplete PCM sample frame")
+	}
+
+	return nil
 }
 
 // BasicAuth carries credentials in an extended identity's basic_auth field.
@@ -403,8 +452,8 @@ func (c *Conn) ReadPacket() (Packet, error) {
 		err = errors.New("audiosocket: invalid DTMF")
 	}
 
-	if _, ok := AudioRate(p.Kind); ok && len(p.Payload)%2 != 0 {
-		err = errors.New("audiosocket: odd PCM payload length")
+	if pcmErr := validatePCM(p, c.opts.extended); pcmErr != nil {
+		err = pcmErr
 	}
 
 	if p.Kind == KindHangup && len(p.Payload) != 0 {
@@ -417,6 +466,9 @@ func (c *Conn) ReadPacket() (Packet, error) {
 // WritePacket serializes a frame and enforces payload limits and identity
 // validation. Use WriteAudio and WriteDTMF to validate those payload types.
 func (c *Conn) WritePacket(p Packet) error {
+	if err := validatePCM(p, c.opts.extended); err != nil {
+		return err
+	}
 	if len(p.Payload) > MaxPayload || len(p.Payload) > c.opts.maxPayload {
 		return errors.New("audiosocket: payload too large")
 	}
@@ -471,6 +523,17 @@ func (c *Conn) WriteIdentity(id Identity) error {
 	}
 
 	return c.WritePacket(Packet{Kind: KindID, Payload: b})
+}
+
+// WritePCM sends interleaved signed 16-bit little-endian PCM.
+// Stereo requires WithExtended(true); mono uses standard AudioSocket packets.
+func (c *Conn) WritePCM(rate, channels int, pcm []byte) error {
+	kind, err := PCMKind(rate, channels)
+	if err != nil {
+		return err
+	}
+
+	return c.WritePacket(Packet{Kind: kind, Payload: pcm})
 }
 
 // WriteAudio sends mono signed 16-bit little-endian PCM at the given rate.

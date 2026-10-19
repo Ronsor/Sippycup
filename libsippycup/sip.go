@@ -790,11 +790,12 @@ func newSIPMediaContext(ctx context.Context, n *Node, remote string) (*sipMedia,
 
 	for port := start; port <= end; port += 2 {
 		s := &sipMedia{
-			Codecs:     sipCodecs(n),
-			Mode:       "sendrecv",
-			Laddr:      net.UDPAddr{IP: ip, Port: port},
-			ExternalIP: external,
-			Symmetric:  n.RTP.symmetricEnabled(),
+			Codecs:       sipCodecs(n),
+			OpusChannels: opusChannels(n),
+			Mode:         "sendrecv",
+			Laddr:        net.UDPAddr{IP: ip, Port: port},
+			ExternalIP:   external,
+			Symmetric:    n.RTP.symmetricEnabled(),
 		}
 		if n.RTP != nil {
 			s.AllowPrivateDestinations = n.RTP.AllowPrivateDestinations
@@ -950,7 +951,7 @@ func (o *rtpOutput) keepalive(ctx context.Context, format Format, interval time.
 		o.eventTimestamp += uint32((age - 20*time.Millisecond).Seconds() * 8000)
 	}
 
-	data, err := o.silence.encode(make([]int16, format.Rate/50), format)
+	data, err := o.silence.encode(make([]int16, format.Rate/50*format.Channels), format)
 	if err != nil {
 		return err
 	}
@@ -995,7 +996,11 @@ func (t *sipTransport) makeLeg(
 	)
 	var unknownPayload atomic.Uint64
 	codec := sess.audioCodec()
-	format, _ := formatFor(strings.ToLower(codec.Name), int(codec.SampleRate), 1)
+	channels := 1
+	if strings.EqualFold(codec.Name, "opus") && sess.remoteStereo[codec.PayloadType] {
+		channels = opusChannels(n)
+	}
+	format, _ := formatFor(strings.ToLower(codec.Name), int(codec.SampleRate), channels)
 	l := newChannelLeg(ctx, format, e.depth(n))
 	l.node = n
 	eventPT := -1
@@ -1190,7 +1195,7 @@ func (t *sipTransport) makeLeg(
 				sess.log.Debug("SIP unnegotiated RTP payload type", "payload_type", p.PayloadType)
 			}
 
-			if ok && !l.emit(Frame{Format: f, Data: append([]byte(nil), p.Payload...)}) {
+			if ok && !l.emit(Frame{Format: packetFormat(f, p.Payload), Data: append([]byte(nil), p.Payload...)}) {
 				return
 			}
 		}

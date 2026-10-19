@@ -242,7 +242,32 @@ async function startWebRTC(call) {
   }
 
   transceiver.setCodecPreferences(codecs);
-  await pc.setLocalDescription(await pc.createOffer());
+  const offer = await pc.createOffer();
+
+  if (settings.channels === "2") {
+    const opus = offer.sdp.match(/^a=rtpmap:(\d+) opus\/48000\/2\r?$/mi);
+
+    if (opus) {
+      const prefix = `a=fmtp:${opus[1]} `;
+      const lines = offer.sdp.split("\r\n");
+      const index = lines.findIndex((line) => line.startsWith(prefix));
+      const params = index < 0 ? [] : lines[index].slice(prefix.length).split(";")
+        .filter((param) => !/^(stereo|sprop-stereo)=/.test(param.trim()));
+      params.push("stereo=1", "sprop-stereo=1");
+      const line = prefix + params.join(";");
+
+      if (index < 0) {
+        const media = lines.findIndex((entry) => entry.startsWith(`a=rtpmap:${opus[1]} `));
+        lines.splice(media + 1, 0, line);
+      } else {
+        lines[index] = line;
+      }
+
+      offer.sdp = lines.join("\r\n");
+    }
+  }
+
+  await pc.setLocalDescription(offer);
   await gatherICE(call);
 
   if (active !== call) {
@@ -297,7 +322,8 @@ async function startAudioSocket(call) {
   const worklet = (call.worklet = new AudioWorkletNode(context, "sippycup-audio", {
     numberOfInputs: 1,
     numberOfOutputs: 1,
-    outputChannelCount: [1],
+    outputChannelCount: [2],
+    processorOptions: { channels: Number(settings.channels) || 1 },
   }));
   call.microphone = context.createMediaStreamSource(call.stream);
   call.microphone.connect(worklet);
@@ -308,7 +334,7 @@ async function startAudioSocket(call) {
   ws.binaryType = "arraybuffer";
   worklet.port.onmessage = (event) => {
     if (active === call && ws.readyState === WebSocket.OPEN && ws.bufferedAmount < 65536) {
-      ws.send(packet(0x10, new Uint8Array(event.data)));
+      ws.send(packet(settings.channels === "2" ? 0x20 : 0x10, new Uint8Array(event.data)));
     }
   };
 
@@ -378,9 +404,11 @@ async function startAudioSocket(call) {
     }
 
     const rates = [8000, 12000, 16000, 24000, 32000, 44100, 48000, 96000, 192000];
-    const rate = rates[kind - 0x10];
+    const channels = kind >= 0x20 && kind <= 0x28 ? 2 : 1;
+    const rate = rates[kind - (channels === 2 ? 0x20 : 0x10)];
 
-    if (rate && length % 2 === 0) {
+    if (rate && length % (2 * channels) === 0 &&
+        (channels === 1 || settings.extended === "true")) {
       clearTimeout(call.timer);
 
       if (settings.native !== "true") {
@@ -393,7 +421,7 @@ async function startAudioSocket(call) {
         samples[i] = view.getInt16(3 + i * 2, true) / 32768;
       }
 
-      worklet.port.postMessage({ rate, samples }, [samples.buffer]);
+      worklet.port.postMessage({ rate, samples, channels }, [samples.buffer]);
     }
   };
 }
@@ -416,7 +444,7 @@ async function start() {
 
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
-        channelCount: 1,
+        channelCount: Number(settings.channels) || 1,
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,

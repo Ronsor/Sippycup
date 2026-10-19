@@ -342,3 +342,53 @@ func TestWriteIdentityRejectsInvalidJSON(t *testing.T) {
 		}
 	}
 }
+
+func TestStereoPCM(t *testing.T) {
+	for _, rate := range rates {
+		kind, err := PCMKind(rate, 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gotRate, channels, ok := PCMFormat(kind)
+		if !ok || gotRate != rate || channels != 2 {
+			t.Fatalf("format: %d %d %v", gotRate, channels, ok)
+		}
+	}
+	for _, extended := range []bool{false, true} {
+		for _, payload := range [][]byte{{1, 0, 2, 0}, {1, 0}} {
+			a, b := net.Pipe()
+			c := Wrap(a, WithExtended(extended))
+			done := make(chan error, 1)
+			go func() { defer b.Close(); done <- WritePacket(b, Packet{Kind: 0x26, Payload: payload}) }()
+			_, err := c.ReadPacket()
+			c.Close()
+			if wantErr := !extended || len(payload)%4 != 0; (err != nil) != wantErr {
+				t.Fatalf("extended=%v payload=%v: %v", extended, payload, err)
+			}
+			<-done
+		}
+	}
+	server := httptest.NewServer(Handler(func(c *Conn, _ *http.Request) {
+		defer c.Close()
+		p, err := c.ReadPacket()
+		if err == nil {
+			_ = c.WritePacket(p)
+		}
+	}, WithExtended(true)))
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	c, err := Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), WithExtended(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	pcm := []byte{1, 0, 2, 0, 3, 0, 4, 0}
+	if err := c.WritePCM(48000, 2, pcm); err != nil {
+		t.Fatal(err)
+	}
+	p, err := c.ReadPacket()
+	if err != nil || p.Kind != 0x26 || !bytes.Equal(p.Payload, pcm) {
+		t.Fatalf("stereo WS: %v %v", p, err)
+	}
+}

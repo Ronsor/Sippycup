@@ -35,7 +35,10 @@ func (e *Engine) execEndpoint(
 		if n.Transcode != nil && n.Transcode.Mode == "never" {
 			return nil, errors.New("exec cannot stream packetized Opus with transcode never")
 		}
-		f = Format{"pcm_s16le", 48000, 1}
+		f = Format{"pcm_s16le", 48000, f.Channels}
+	}
+	if n.IO == "audiosocket" && !n.Extended {
+		f.Channels = 1
 	}
 	if n.IO == "pcm" && f.Codec != "pcm_s16le" {
 		return nil, errors.New("io=pcm requires PCM format; configure transcode")
@@ -151,7 +154,7 @@ func (e *Engine) execEndpoint(
 		"CALL_ID="+req.ID,
 		"AUDIO_CODEC="+f.Codec,
 		"AUDIO_SAMPLE_RATE="+strconv.Itoa(f.Rate),
-		"AUDIO_CHANNELS=1",
+		"AUDIO_CHANNELS="+strconv.Itoa(f.Channels),
 	)
 	if err = cmd.Start(); err != nil {
 		for _, v := range files {
@@ -213,7 +216,7 @@ func (e *Engine) execEndpoint(
 		audioMu.Lock()
 		defer audioMu.Unlock()
 		if n.IO == "audiosocket" {
-			kind, err := audiosocket.AudioKind(f.Format.Rate)
+			kind, err := audiosocket.PCMKind(f.Format.Rate, f.Format.Channels)
 			if err != nil {
 				return err
 			}
@@ -308,14 +311,14 @@ func (e *Engine) execEndpoint(
 					return
 				}
 
-				if rate, ok := audiosocket.AudioRate(p.Kind); ok {
-					if len(p.Payload)%2 != 0 {
-						l.fail(errors.New("odd AudioSocket audio length"))
+				if rate, channels, ok := audiosocket.PCMFormat(p.Kind); ok {
+					if channels == 2 && !n.Extended || len(p.Payload)%(2*channels) != 0 {
+						l.fail(errors.New("invalid AudioSocket PCM format or length"))
 
 						return
 					}
 
-					if !l.emit(Frame{Format: Format{"pcm_s16le", rate, 1}, Data: p.Payload}) {
+					if !l.emit(Frame{Format: Format{"pcm_s16le", rate, channels}, Data: p.Payload}) {
 						return
 					}
 				} else if p.Kind == audiosocket.KindDTMF && len(p.Payload) == 1 && receives(n, "audiosocket") {
@@ -330,7 +333,7 @@ func (e *Engine) execEndpoint(
 			b := make([]byte, f.frameBytes())
 			count, err := io.ReadFull(output, b)
 			if count > 0 {
-				if count%f.bytesPerSample() != 0 {
+				if count%(f.bytesPerSample()*f.Channels) != 0 {
 					l.fail(errors.New("partial audio sample from application"))
 
 					return

@@ -38,6 +38,8 @@ type sipMedia struct {
 	validatedSource          bool
 	Codecs                   []sipCodec
 	Mode                     string
+	OpusChannels             int
+	remoteStereo             map[uint8]bool
 	Laddr                    net.UDPAddr
 	ExternalIP               net.IP
 	ExternalPort             int
@@ -135,7 +137,7 @@ func (s *sipMedia) audioCodec() sipCodec {
 	return s.Codecs[0]
 }
 
-// RemoteSDP negotiates a single G.711 audio stream and its remote addresses.
+// RemoteSDP negotiates a single audio stream and its remote addresses.
 // Call it before starting media readers or writers.
 func (s *sipMedia) RemoteSDP(body []byte) error {
 	var desc sdp.SessionDescription
@@ -170,6 +172,7 @@ func (s *sipMedia) RemoteSDP(body []byte) error {
 	}
 	addr := &net.UDPAddr{IP: ip, Port: m.MediaName.Port.Value}
 
+	s.remoteStereo = make(map[uint8]bool)
 	remoteCodecs := map[uint8]sipCodec{0: codecPCMU, 8: codecPCMA}
 	for _, attr := range m.Attributes {
 		if attr.Key != "rtpmap" {
@@ -227,6 +230,7 @@ func (s *sipMedia) RemoteSDP(body []byte) error {
 				continue
 			}
 
+			s.remoteStereo[got.PayloadType] = remoteOpusStereo(string(body), got.PayloadType)
 			got.Name = want.Name
 			if got.Name != "telephone-event" {
 				// An answer may accept several codecs from our offer, and
@@ -245,7 +249,7 @@ func (s *sipMedia) RemoteSDP(body []byte) error {
 	}
 
 	if !audioSelected {
-		return errors.New("no common G.711 codec")
+		return errors.New("no common audio codec")
 	}
 
 	rtcpAddr := &net.UDPAddr{IP: addr.IP, Port: addr.Port + 1}
@@ -332,7 +336,7 @@ func (s *sipMedia) LocalSDP() []byte {
 	for _, c := range codecs {
 		if strings.EqualFold(c.Name, "opus") {
 			fmt.Fprintf(&b, "a=rtpmap:%d opus/48000/2\r\n", c.PayloadType)
-			fmt.Fprintf(&b, "a=fmtp:%d stereo=0;sprop-stereo=0;useinbandfec=0\r\n", c.PayloadType)
+			fmt.Fprintf(&b, "a=fmtp:%d %s\r\n", c.PayloadType, opusFMTP(max(1, s.OpusChannels)))
 		} else {
 			fmt.Fprintf(&b, "a=rtpmap:%d %s/%d\r\n", c.PayloadType, c.Name, c.SampleRate)
 		}

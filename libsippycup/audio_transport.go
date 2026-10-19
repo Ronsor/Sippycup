@@ -36,7 +36,7 @@ func (e *Engine) audioLeg(
 			return c.WriteDTMF(f.Digit)
 		}
 
-		return c.WriteAudio(f.Format.Rate, f.Data)
+		return c.WritePCM(f.Format.Rate, f.Format.Channels, f.Data)
 	}
 	go func() {
 		defer l.fail(io.EOF)
@@ -80,14 +80,14 @@ func (e *Engine) audioLeg(
 				continue
 			}
 
-			if rate, ok := audiosocket.AudioRate(p.Kind); ok {
+			if rate, channels, ok := audiosocket.PCMFormat(p.Kind); ok {
 				if len(onState) > 0 && !haveState {
 					l.fail(errors.New("native AudioSocket audio arrived before call state"))
 
 					return
 				}
 
-				if !l.emit(Frame{Format: Format{"pcm_s16le", rate, 1}, Data: p.Payload}) {
+				if !l.emit(Frame{Format: Format{"pcm_s16le", rate, channels}, Data: p.Payload}) {
 					return
 				}
 			} else if p.Kind == audiosocket.KindDTMF && receives(n, "audiosocket") {

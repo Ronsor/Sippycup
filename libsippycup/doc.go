@@ -45,14 +45,15 @@
 //
 // # Audio and DTMF
 //
-// Supported audio formats are mono PCMU, PCMA, Opus, and signed 16-bit
-// little-endian PCM. Codecs and resampling are implemented in pure Go.
+// Supported audio formats are mono PCMU/PCMA and mono or stereo Opus and
+// signed 16-bit little-endian PCM. Codecs and resampling use pure Go.
 // Transcoding can be automatic, forced to a configured format, or disabled.
 //
 // SIP and WebRTC default to PCMU and PCMA; Opus is opt-in. Opus encoding uses
-// 48 kHz mono audio in 20 ms packets, with a default bitrate of 32000 bits per
-// second. Each Opus [Frame] contains one complete packet. AudioSocket carries
-// PCM. Opus FEC, DTX, and adaptive jitter buffering are not enabled.
+// 48 kHz audio in 20 ms packets, with a default bitrate of 32000 bits per
+// second. Mono is the default; stereo is opt-in. Each Opus [Frame] contains
+// one complete packet. AudioSocket carries mono PCM, or stereo PCM in extended
+// mode. Opus FEC, DTX, and adaptive jitter buffering are not enabled.
 //
 // DTMF receive and send policies are relative to the engine and configurable
 // independently for each node. Native events use RTP telephone-event for SIP

@@ -2,8 +2,8 @@
 
 [← Sippycup](../README.md)
 
-Supported formats are mono PCMU, PCMA, Opus, and signed 16-bit little-endian PCM at AudioSocket
-sample rates. SIP and WebRTC can negotiate Opus; AudioSocket carries PCM.
+Supported formats are mono PCMU/PCMA and mono or stereo Opus and signed 16-bit
+little-endian PCM at AudioSocket sample rates. SIP and WebRTC can negotiate Opus; AudioSocket carries PCM.
 Codec conversion uses pure Go and does not require CGO or ffmpeg.
 
 Opus is opt-in: add it to a SIP or WebRTC node's codec list. The default remains PCMU/PCMA.
@@ -17,12 +17,14 @@ opus {
 ```
 
 The optional `opus` block configures locally encoded audio (6000–510000 bits/s; default 32000).
-It also applies to in-process nodes. Encoding uses mono 48 kHz and 20 ms packets.
+It also applies to in-process nodes. Encoding uses 48 kHz and 20 ms packets.
+Set `opus { channels = 2 }` to prefer stereo (default: mono). A
+`transcode` block with `codec = "opus"` and `channels = 2` also selects stereo.
 Incoming packets may use other Opus frame durations and SILK, hybrid, or CELT modes;
-stereo input is decoded to mono when transcoding. SDP uses `opus/48000/2`, as required
-by the RTP format, while requesting mono operation.
+SDP uses `opus/48000/2` for both mono and stereo. SIP and WebRTC send stereo only
+when the remote receiver requests it with `stereo=1`; otherwise output is mono.
 
-Compatible mono Opus packets pass through intact unless transcoding or in-band DTMF requires
+Compatible Opus packets pass through intact unless transcoding or in-band DTMF requires
 decoding. Packet duration drives pacing and RTP timestamps. `transcode { codec = "opus" }`
 forces encoding; its sample rate, if supplied, must be 48000. Bitrate settings do not
 alter packets passed through without encoding.
@@ -31,6 +33,29 @@ Opus uses a pinned development revision of `github.com/pion/opus`; no FEC, DTX, 
 buffer, or packet-loss concealment is enabled by the gateway. Exec endpoints receive
 PCM when inheriting an Opus input format; raw subprocess byte streams cannot delimit
 Opus packets. In-process `Frame.Data` must contain one complete Opus packet.
+
+PCM stereo is interleaved left/right. Mono-to-stereo conversion duplicates each
+sample; stereo-to-mono conversion averages left and right without overflowing.
+Resampling maintains separate filter history per channel. In-band DTMF detection
+uses a mono mix, and synthesized tones are sent to both output channels.
+
+Standard AudioSocket remains mono. To send stereo PCM over TCP, WebSocket, or
+an AudioSocket subprocess, enable extended mode on both peers:
+
+```hcl
+extended = true
+
+transcode {
+  codec       = "pcm_s16le"
+  sample_rate = 48000
+  channels    = 2
+}
+```
+
+Stereo packets use the Sippycup extension described in the
+[AudioSocket README](../audiosocket/README.md#stereo-pcm). Channel count is carried
+by each packet kind, so incoming mono and stereo packets can be distinguished.
+This is not compatible with an ordinary Asterisk AudioSocket peer.
 
 A source or endpoint can select `transcode.mode = "auto"`, `"always"`, or `"never"`. To force a
 format on an endpoint:

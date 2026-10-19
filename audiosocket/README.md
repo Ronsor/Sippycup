@@ -130,6 +130,26 @@ are the application's responsibility.
 AudioSocket over WebSocket uses the `audiosocket` subprotocol and is distinct from
 Asterisk's `chan_websocket` protocol.
 
+## Stereo PCM
+
+Stereo PCM is a Sippycup extension requiring `WithExtended(true)` on both peers.
+The standard mono kinds `0x10`–`0x18` are unchanged. Stereo kinds `0x20`–`0x28`
+use the same rate order: 8000, 12000, 16000, 24000, 32000, 44100, 48000, 96000,
+and 192000 Hz. Each payload contains interleaved signed 16-bit little-endian
+samples in left/right order, with a length divisible by four. The three-byte
+header and WebSocket framing are unchanged; the length counts payload bytes.
+
+Use `conn.WritePCM(rate, 2, pcm)` to send stereo and `PCMFormat(packet.Kind)` to
+read its rate and channel count. `PCMKind(rate, channels)` constructs either
+mono or stereo packet kinds. Existing `WriteAudio`, `AudioKind`, and `AudioRate`
+retain their mono semantics. `Conn` rejects stereo in standard mode and rejects
+incomplete PCM sample frames on reads and writes. The low-level free functions
+`ReadPacket` and `WritePacket` still only handle framing.
+
+Extended mode permits stereo but does not negotiate it or require it. Configure
+stereo output explicitly on both applications as needed; mono packets are still
+accepted. An ordinary Asterisk AudioSocket peer does not support these kinds.
+
 ## Native Early Media
 
 Native early-media signaling adds KindState (`0x02`) with a one-byte payload:
